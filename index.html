@@ -6,59 +6,31 @@
 <title>Early merge vs. zipper merge — bottleneck simulator</title>
 <style>
   :root {
-    color-scheme: light dark;
-    --bg: #eef0f3;
-    --panel: #ffffff;
-    --text: #1c2129;
-    --muted: #5e6873;
-    --border: #d6dbe2;
-    --inset: #f3f5f8;
-    --road: #c7cdd5;
-    --road-edge: #a8b0ba;
-    --road-line: #ffffff;
-    --closed-bg: rgba(214, 69, 69, 0.08);
-    --closed: #d64545;
-    --queue: rgba(214, 69, 69, 0.13);
-    --early: #6b46c1;
-    --zip: #0e8a7f;
-    --mix: #c2410c;
-    --lane0: #2f6fd1;
-    --lane1: #e39b1d;
-    --ok: #1f9d55;
-    --bad: #d64545;
-    --btn: #ffffff;
-    --btn-hover: #f1f4f8;
-    --primary: #1c2129;
-    --primary-text: #ffffff;
-    --focus: #2f6fd1;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0f1216;
-      --panel: #171b21;
-      --text: #e4e8ee;
-      --muted: #98a2ae;
-      --border: #2a313a;
-      --inset: #1e242c;
-      --road: #2b3139;
-      --road-edge: #4a535e;
-      --road-line: #aab4c0;
-      --closed-bg: rgba(255, 107, 107, 0.10);
-      --closed: #e06565;
-      --queue: rgba(255, 107, 107, 0.16);
-      --early: #b49cf3;
-      --zip: #3fd1c2;
-      --mix: #ff9a5c;
-      --lane0: #5c9dff;
-      --lane1: #ffc14a;
-      --ok: #3fcf7c;
-      --bad: #ff6b6b;
-      --btn: #1e242c;
-      --btn-hover: #28303a;
-      --primary: #e4e8ee;
-      --primary-text: #0f1216;
-      --focus: #5c9dff;
-    }
+    color-scheme: dark;
+    --bg: #0f1216;
+    --panel: #171b21;
+    --text: #e4e8ee;
+    --muted: #98a2ae;
+    --border: #2a313a;
+    --inset: #1e242c;
+    --road: #2b3139;
+    --road-edge: #4a535e;
+    --road-line: #aab4c0;
+    --closed-bg: rgba(255, 107, 107, 0.10);
+    --closed: #e06565;
+    --queue: rgba(255, 107, 107, 0.16);
+    --early: #b49cf3;
+    --zip: #3fd1c2;
+    --mix: #ff9a5c;
+    --lane0: #5c9dff;
+    --lane1: #ffc14a;
+    --ok: #3fcf7c;
+    --bad: #ff6b6b;
+    --btn: #1e242c;
+    --btn-hover: #28303a;
+    --primary: #e4e8ee;
+    --primary-text: #0f1216;
+    --focus: #5c9dff;
   }
 
   * { box-sizing: border-box; }
@@ -72,18 +44,23 @@
   }
   .wrap { max-width: 1240px; margin: 0 auto; }
 
-  header { margin-bottom: 16px; max-width: 70ch; }
-  h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.015em; margin: 0 0 4px; }
-  header p { margin: 0; color: var(--muted); }
 
-  .layout { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
   @media (min-width: 1000px) {
     .layout { grid-template-columns: 300px minmax(0, 1fr); }
     .controls-card { position: sticky; top: 12px; }
+    .controls-card > details > summary { pointer-events: none; }
+    .controls-card > details > summary::after { display: none; }
   }
 
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
   .card h2 { font-size: 0.95rem; font-weight: 650; margin: 0 0 10px; }
+  .controls-card > details > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+  .controls-card > details > summary::-webkit-details-marker { display: none; }
+  .controls-card > details > summary::after { content: ""; width: 7px; height: 7px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); transition: transform 160ms ease-out; }
+  .controls-card > details[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
+  .controls-card > details:not([open]) > summary h2 { margin: 0; }
+  @media (prefers-reduced-motion: reduce) { .controls-card > details > summary::after { transition: none; } }
 
   .controls-card .group + .group { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
   .controls-card .group > h3 { font-size: 0.78rem; font-weight: 600; color: var(--muted); margin: 0 0 8px; }
@@ -102,11 +79,15 @@
   button {
     font: inherit; font-size: 0.9rem; padding: 6px 12px; border-radius: 7px;
     border: 1px solid var(--border); background: var(--btn); color: var(--text); cursor: pointer;
+    transition: transform 120ms ease-out;
   }
-  button:hover { background: var(--btn-hover); }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button:active { transform: scale(0.97); }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   button.primary { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
-  button.primary:hover { opacity: 0.9; }
+  @media (hover: hover) and (pointer: fine) {
+    button:hover { background: var(--btn-hover); }
+    button.primary:hover { background: var(--primary); opacity: 0.9; }
+  }
   .seed { display: flex; align-items: center; gap: 6px; font-size: 0.86rem; }
   .seed input { width: 112px; font: inherit; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--inset); color: var(--text); font-variant-numeric: tabular-nums; }
   .status { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 10px; }
@@ -125,7 +106,7 @@
   .metric .v { font-size: 1.08rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.3; white-space: nowrap; }
   .metric .s { font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--muted); margin-top: -4px; padding: 0 4px; }
   .legend span::before { content: ""; display: inline-block; width: 14px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0; background: var(--c); }
 
   .compare { font-size: 0.92rem; }
@@ -146,25 +127,49 @@
   canvas.chart { width: 100%; height: 200px; display: block; }
 
   .explain { max-width: 78ch; }
-  .explain p { margin: 0 0 8px; }
-  .explain p:last-child { margin-bottom: 0; }
+  .explain p { margin: 8px 0 0; }
   details { max-width: 78ch; }
   details summary { cursor: pointer; font-weight: 600; font-size: 0.95rem; }
   details ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 0.9rem; }
   details li { margin-bottom: 4px; }
+  @media (max-width: 560px) {
+    body { padding: 14px 12px 32px; }
+    .card { padding: 12px; }
+    .metric .s { white-space: normal; }
+    .compare th, .compare td { white-space: normal; padding: 4px 6px; vertical-align: top; }
+
+    /* the three roads stand upright side by side; subgrid keeps title, road, tiles and text aligned across columns */
+    .panels { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 6px; }
+    .panels > * { grid-column: 1 / -1; }
+    .panels > .road-card { grid-column: auto; grid-row: span 4; display: grid; grid-template-rows: subgrid; row-gap: 8px; padding: 8px 6px; }
+    .road-card .panel-head { display: contents; }
+    .road-card h2 { font-size: 0.82rem; align-items: flex-start; }
+    .road-card .swatch { margin-top: 0.3em; }
+    .road-card .sub { order: 1; font-size: 0.74rem; line-height: 1.35; }
+    canvas.road { height: 480px; height: min(480px, 60svh); }
+    .road-card .metrics { grid-template-columns: minmax(0, 1fr); margin-top: 0; gap: 4px; }
+    .road-card .metric { padding: 6px; }
+    .road-card .metric .v { font-size: 0.95rem; white-space: normal; }
+    .legend { margin-top: 0; }
+  }
+  @media (pointer: coarse) {
+    button, .seed input, details > summary { min-height: 44px; }
+    .seg button { min-width: 44px; }
+    .seed input { font-size: 16px; }   /* below 16px iOS zooms the page on focus */
+    .ctl input[type=range] { height: 32px; margin: 0; }
+    .ctl { margin-bottom: 14px; }
+  }
   .vis-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>Early merge vs. zipper merge</h1>
-    <p>Two lanes feed one gate that lets through one car at a time. All three roads below get exactly the same cars at exactly the same moments; the only difference is how the cars line up.</p>
-  </header>
+  <h1 class="vis-hidden">Early merge vs. zipper merge</h1>
 
   <div class="layout">
     <section class="card controls-card" aria-labelledby="ctl-h">
-      <h2 id="ctl-h">Controls</h2>
+      <details id="ctlDetails" open>
+      <summary><h2 id="ctl-h">Controls</h2></summary>
       <div class="groups">
         <div class="group">
           <h3>Traffic arriving</h3>
@@ -230,10 +235,11 @@
           <p class="status" id="status" aria-live="off"></p>
         </div>
       </div>
+      </details>
     </section>
 
     <div class="panels">
-      <section class="card" aria-labelledby="early-h">
+      <section class="card road-card" aria-labelledby="early-h">
         <div class="panel-head">
           <h2 id="early-h"><span class="swatch" style="background: var(--early)"></span>A · Early merge</h2>
           <span class="sub">Move into the through lane at the merge zone (or at the back of the queue) and wait in one file.</span>
@@ -242,7 +248,7 @@
         <div class="metrics" id="mEarly"></div>
       </section>
 
-      <section class="card" aria-labelledby="zip-h">
+      <section class="card road-card" aria-labelledby="zip-h">
         <div class="panel-head">
           <h2 id="zip-h"><span class="swatch" style="background: var(--zip)"></span>B · Zipper merge</h2>
           <span class="sub">Use both lanes all the way to the gate, then alternate one car from each lane.</span>
@@ -251,21 +257,22 @@
         <div class="metrics" id="mZip"></div>
       </section>
 
-      <section class="card" aria-labelledby="mixed-h">
+      <section class="card road-card" aria-labelledby="mixed-h">
         <div class="panel-head">
           <h2 id="mixed-h"><span class="swatch" style="background: var(--mix)"></span>C · Early merge with late mergers</h2>
           <span class="sub" id="mixedSub"></span>
         </div>
         <canvas class="road" id="cvMixed" role="img" aria-label="Animated road for early merge with late mergers"></canvas>
         <div class="metrics" id="mMixed"></div>
-        <div class="legend">
-          <span style="--c: var(--lane0)">car that arrived in the through lane</span>
-          <span style="--c: var(--lane1)">car that arrived in the closing lane</span>
-          <span style="--c: linear-gradient(to bottom, var(--lane1) 30%, #fff 30%, #fff 70%, var(--lane1) 70%)">late merger (white stripe)</span>
-          <span style="--c: var(--bad)">gate closed (red bar) · brake lights on slow cars</span>
-          <span style="--c: var(--ok)">gate open</span>
-        </div>
       </section>
+
+      <div class="legend">
+        <span style="--c: var(--lane0)">car that arrived in the through lane</span>
+        <span style="--c: var(--lane1)">car that arrived in the closing lane</span>
+        <span style="--c: linear-gradient(to bottom, var(--lane1) 30%, #fff 30%, #fff 70%, var(--lane1) 70%)">late merger (white stripe)</span>
+        <span style="--c: var(--bad)">gate closed (red bar) · brake lights on slow cars</span>
+        <span style="--c: var(--ok)">gate open</span>
+      </div>
 
       <section class="card compare" aria-labelledby="cmp-h">
         <h2 id="cmp-h">Side by side</h2>
@@ -298,12 +305,12 @@
         <p class="hint" id="chartHint" hidden>Each queue divided by the zipper queue (A ÷ B in violet, C ÷ B in orange), on a log scale so 2× and ½× sit the same distance from the 1× line. A line is only drawn while both queues hold at least 3 cars; in meters, 2× means the zipper is making full use of both lanes.</p>
       </section>
 
-      <section class="card explain" aria-labelledby="why-h">
-        <h2 id="why-h">Why the throughput matches</h2>
+      <details class="card explain">
+        <summary>Why the throughput matches</summary>
         <p>The gate is a hard, fixed-rate server: it releases at most one car every T seconds, whatever is going on upstream. As soon as a queue exists, the gate is the only thing limiting flow, so both strategies send through the same cars per minute, and the total time cars spend waiting is the same too. The strategies only decide <em>where</em> the waiting happens: early merge stacks it in one lane, zipper spreads it across two, so the zipper queue is about half as long in meters.</p>
         <p>Panel C shows that queue-jumping is a transfer, not a saving: each late merger skips the line, and every car behind the slot it takes waits one gate interval longer. The gate's rate, and so the total, is unchanged — only who pays changes (compare the late mergers' wait with everyone else's in C's tiles).</p>
         <p>Friction is where the strategies can part ways. If the act of merging makes the gate slower, the strategy whose merging coincides with a release pays for it — turn either friction slider up to see which one wins under which assumption. C can pay both kinds: early-merge friction for its upstream lane changes and zipper friction when a late merger cuts in at the gate.</p>
-      </section>
+      </details>
 
       <details class="card">
         <summary>Model notes and simplifications</summary>
@@ -721,6 +728,8 @@
   const P = { lambda: 0.75, cv: 1, mu: 0.8, fEarly: 0, fZip: 0, lateN: 10 };
   let speedIdx = 2, paused = false, chartMode = 'cars', chartView = 'both';
   let world = new World(readSeed());
+  // on phones the controls fill the first screen; start collapsed so the roads are visible
+  if (window.matchMedia('(max-width: 999px)').matches) $('ctlDetails').open = false;
 
   function readSeed() {
     const v = parseInt($('seed').value, 10);
@@ -841,7 +850,7 @@
   }
 
   // theme
-  let TH = readTheme();
+  const TH = readTheme();
   function readTheme() {
     const s = getComputedStyle(document.documentElement);
     const g = n => s.getPropertyValue(n).trim();
@@ -851,9 +860,6 @@
       ok: g('--ok'), bad: g('--bad'), queue: g('--queue'), grid: g('--border'), panel: g('--panel'), inset: g('--inset'), mix: g('--mix')
     };
   }
-  const mq = window.matchMedia('(prefers-color-scheme: dark)');
-  if (mq.addEventListener) mq.addEventListener('change', () => { TH = readTheme(); });
-  else if (mq.addListener) mq.addListener(() => { TH = readTheme(); });
 
   function prepCanvas(cv) {
     const w = cv.clientWidth, h = cv.clientHeight;
@@ -876,33 +882,38 @@
   }
 
   function drawPanel(sim, cv) {
-    const { ctx, w } = prepCanvas(cv);
-    const total = W.approach + W.exit, sx = w / total;
-    const laneH = 28, top = 40;
+    const { ctx, w, h: ch } = prepCanvas(cv);
+    const vertical = ch > w;   // phone layout: the road runs top to bottom
+    const span = vertical ? ch : w;
+    const total = W.approach + W.exit, sx = span / total;
+    const laneH = vertical ? 20 : 28, top = vertical ? 4 : 40;
     const roadBottom = top + 2 * laneH;
     const xb = W.approach * sx;
     const lane1End = (sim.kind === 'early' ? W.mergeEnd : W.approach) * sx;
-    const font = '11px "Avenir Next", "Segoe UI", system-ui, sans-serif';
+    const font = (vertical ? '10px' : '11px') + ' "Avenir Next", "Segoe UI", system-ui, sans-serif';
+
+    ctx.save();
+    if (vertical) ctx.transform(0, 1, 1, 0, 0, 0);   // swap axes; text is drawn after restore() so it stays upright
 
     // road surface
     ctx.fillStyle = TH.road;
-    ctx.fillRect(0, top, w, 2 * laneH);
+    ctx.fillRect(0, top, span, 2 * laneH);
 
     // closed stretch of the closing lane (hatched, with a taper)
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(lane1End, roadBottom);
     ctx.lineTo(lane1End + 14 * sx, top + laneH);
-    ctx.lineTo(w, top + laneH);
-    ctx.lineTo(w, roadBottom);
+    ctx.lineTo(span, top + laneH);
+    ctx.lineTo(span, roadBottom);
     ctx.closePath();
     ctx.clip();
     ctx.fillStyle = TH.closedBg;
-    ctx.fillRect(lane1End, top + laneH, w - lane1End, laneH);
+    ctx.fillRect(lane1End, top + laneH, span - lane1End, laneH);
     ctx.strokeStyle = TH.closed;
     ctx.globalAlpha = 0.55;
     ctx.lineWidth = 2;
-    for (let x = lane1End - laneH; x < w; x += 11) {
+    for (let x = lane1End - laneH; x < span; x += 11) {
       ctx.beginPath(); ctx.moveTo(x, roadBottom); ctx.lineTo(x + laneH, top + laneH); ctx.stroke();
     }
     ctx.restore();
@@ -918,7 +929,7 @@
     ctx.setLineDash([]);
     ctx.strokeStyle = TH.roadEdge;
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(w, top + 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(span, top + 0.5); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, roadBottom - 0.5); ctx.lineTo(lane1End, roadBottom - 0.5); ctx.stroke();
 
     // merge sign: chevrons pointing to the through lane
@@ -961,6 +972,10 @@
     for (const c of sim.exit) drawCar(c);
     if (sim.kind === 'zipper') { for (const c of sim.lanes[0]) drawCar(c); for (const c of sim.lanes[1]) drawCar(c); }
     else { for (const c of sim.file) drawCar(c); for (const c of sim.lane1) drawCar(c); }
+    ctx.restore();
+
+    const off = sim.offscreen();
+    if (vertical) { drawUprightLabels(ctx, sim, { sx, xb, lx: roadBottom + 5, font, off }); return; }
 
     // labels
     ctx.font = font;
@@ -993,7 +1008,6 @@
     }
 
     // off-screen badge
-    const off = sim.offscreen();
     if (off) {
       const label = '◀ ' + off + ' more waiting off-screen';
       ctx.font = font;
@@ -1004,6 +1018,43 @@
       ctx.fillStyle = '#fff';
       ctx.textAlign = 'left';
       ctx.fillText(label, 11, roadBottom + 44);
+    }
+  }
+
+  // Labels for the upright road: a narrow column to the right of the road, y = distance along the road.
+  function drawUprightLabels(ctx, sim, { sx, xb, lx, font, off }) {
+    ctx.font = font;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const qy = sim.q.count && sim.q.backX * sx > 8 ? Math.min(sim.q.backX * sx, xb) : null;   // off the top: the badge says it
+    const label = (text, y) => {
+      if (qy !== null && Math.abs(y - qy) < 12) return;   // the queue marker wins when they collide
+      ctx.fillStyle = TH.muted;
+      ctx.fillText(text, lx, y);
+    };
+    if (!off) label('entry', 8);
+    if (sim.kind !== 'zipper') label('merge', (W.mergeStart + W.mergeEnd) / 2 * sx);
+    label('gate', xb - 8);
+    label(fmt2(1 / P.mu) + ' s', xb + 6);
+    label('exit', xb + 20);
+
+    if (qy !== null) {
+      ctx.strokeStyle = TH.bad;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(lx - 5, qy + 0.5); ctx.lineTo(lx - 1, qy + 0.5); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = TH.text;
+      ctx.fillText(Math.round(sim.q.lengthM) + ' m', lx, qy);
+    }
+
+    if (off) {
+      const text = '▲ ' + off + ' more';
+      const tw = ctx.measureText(text).width;
+      ctx.fillStyle = TH.bad;
+      roundRect(ctx, 2, 2, tw + 10, 16, 4);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, 7, 10);
     }
   }
 
@@ -1095,26 +1146,40 @@
     }
 
     for (const sr of series) {
+      const runs = [];   // unbroken stretches of the line; gaps are where a queue was too small to compare
+      let run = null;
+      for (const pnt of sr.pts) {
+        if (pnt.d === null) { run = null; continue; }
+        if (!run) runs.push(run = []);
+        run.push([X(pnt.t), Y(pnt.d)]);
+      }
+      ctx.fillStyle = sr.color;
+      ctx.globalAlpha = 0.14;
+      for (const r of runs) {
+        ctx.beginPath();
+        ctx.moveTo(r[0][0], Y(0));
+        for (const [x, y] of r) ctx.lineTo(x, y);
+        ctx.lineTo(r[r.length - 1][0], Y(0));
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
       ctx.strokeStyle = sr.color;
       ctx.lineWidth = 2;
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      let pen = false;
-      for (const pnt of sr.pts) {
-        if (pnt.d === null) { pen = false; continue; }
-        const x = X(pnt.t), y = Y(pnt.d);
-        if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
-      }
+      for (const r of runs) r.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
       ctx.stroke();
     }
 
     // captions
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = TH.muted;
-    ctx.textAlign = 'left';
-    ctx.fillText('each queue ÷ zipper queue, in ' + (cars ? 'cars' : 'meters'), L, Tm - 3);
-    ctx.textAlign = 'right';
     const typ = series.map(sr => sr.name + ' ' + (sr.n ? Math.pow(2, sr.sumLog / sr.n).toFixed(2) + '×' : '—')).join(' · ');
+    if (w >= 480) {
+      ctx.textAlign = 'left';
+      ctx.fillText('each queue ÷ zipper queue, in ' + (cars ? 'cars' : 'meters'), L, Tm - 3);
+    }
+    ctx.textAlign = 'right';
     ctx.fillText(w >= 640 ? 'typical: ' + typ : typ, w - R, Tm - 3);
     ctx.fillText(tNow < win ? 'first 2 minutes' : 'last 2 minutes · now ' + fmtTime(tNow), w - R, h - 8);
     ctx.textAlign = 'left';
@@ -1128,8 +1193,9 @@
       ctx.fillStyle = TH.text; ctx.textAlign = 'left'; ctx.fillText(sr.name, lx + 19, ly);
       lx += 19 + ctx.measureText(sr.name).width + 18;
     }
+    const above = 'above 1×: longer than the zipper queue';
     ctx.fillStyle = TH.muted;
-    ctx.fillText('above 1×: longer than the zipper queue', lx, ly);
+    if (lx + ctx.measureText(above).width <= w - R) ctx.fillText(above, lx, ly);
   }
 
   function drawBoth(ctx, w, h) {
@@ -1183,7 +1249,9 @@
     line(kZ, TH.zip);
 
     // legend
-    const items = [['A early merge', TH.early], ['B zipper', TH.zip], ['C with late mergers', TH.mix]];
+    const items = w < 480
+      ? [['A early', TH.early], ['B zipper', TH.zip], ['C late', TH.mix]]
+      : [['A early merge', TH.early], ['B zipper', TH.zip], ['C with late mergers', TH.mix]];
     let lx = L + 8;
     const ly = Tm + 10;
     ctx.textBaseline = 'middle';
