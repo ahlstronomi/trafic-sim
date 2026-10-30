@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Early merge vs. zipper merge — bottleneck simulator</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #eef0f3;
+    --panel: #ffffff;
+    --text: #1c2129;
+    --muted: #5e6873;
+    --border: #d6dbe2;
+    --inset: #f3f5f8;
+    --road: #c7cdd5;
+    --road-edge: #a8b0ba;
+    --road-line: #ffffff;
+    --closed-bg: rgba(214, 69, 69, 0.08);
+    --closed: #d64545;
+    --queue: rgba(214, 69, 69, 0.13);
+    --early: #6b46c1;
+    --zip: #0e8a7f;
+    --mix: #c2410c;
+    --lane0: #2f6fd1;
+    --lane1: #e39b1d;
+    --ok: #1f9d55;
+    --bad: #d64545;
+    --btn: #ffffff;
+    --btn-hover: #f1f4f8;
+    --primary: #1c2129;
+    --primary-text: #ffffff;
+    --focus: #2f6fd1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --panel: #171b21;
+      --text: #e4e8ee;
+      --muted: #98a2ae;
+      --border: #2a313a;
+      --inset: #1e242c;
+      --road: #2b3139;
+      --road-edge: #4a535e;
+      --road-line: #aab4c0;
+      --closed-bg: rgba(255, 107, 107, 0.10);
+      --closed: #e06565;
+      --queue: rgba(255, 107, 107, 0.16);
+      --early: #b49cf3;
+      --zip: #3fd1c2;
+      --mix: #ff9a5c;
+      --lane0: #5c9dff;
+      --lane1: #ffc14a;
+      --ok: #3fcf7c;
+      --bad: #ff6b6b;
+      --btn: #1e242c;
+      --btn-hover: #28303a;
+      --primary: #e4e8ee;
+      --primary-text: #0f1216;
+      --focus: #5c9dff;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  body {
+    font: 15px/1.45 "Avenir Next", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 18px 14px 40px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  header { margin-bottom: 16px; max-width: 70ch; }
+  h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.015em; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--muted); }
+
+  .layout { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+  @media (min-width: 1000px) {
+    .layout { grid-template-columns: 300px minmax(0, 1fr); }
+    .controls-card { position: sticky; top: 12px; }
+  }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card h2 { font-size: 0.95rem; font-weight: 650; margin: 0 0 10px; }
+
+  .controls-card .group + .group { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .controls-card .group > h3 { font-size: 0.78rem; font-weight: 600; color: var(--muted); margin: 0 0 8px; }
+  @media (max-width: 999px) {
+    .controls-card .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 24px; }
+    .controls-card .group + .group { border-top: 0; padding-top: 0; margin-top: 8px; }
+  }
+  .ctl { margin-bottom: 10px; }
+  .ctl label { display: block; font-size: 0.86rem; }
+  .ctl output { display: block; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; min-height: 1.2em; }
+  .ctl input[type=range] { width: 100%; margin: 4px 0 0; accent-color: var(--primary); }
+  .ctl input[type=range]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+  .hint { font-size: 0.78rem; color: var(--muted); margin: 6px 0 0; }
+
+  .run { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button {
+    font: inherit; font-size: 0.9rem; padding: 6px 12px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--btn); color: var(--text); cursor: pointer;
+  }
+  button:hover { background: var(--btn-hover); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button.primary { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+  button.primary:hover { opacity: 0.9; }
+  .seed { display: flex; align-items: center; gap: 6px; font-size: 0.86rem; }
+  .seed input { width: 112px; font: inherit; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--inset); color: var(--text); font-variant-numeric: tabular-nums; }
+  .status { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 10px; }
+
+  .panels { display: grid; gap: 14px; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .panel-head h2 { margin: 0; display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+  .panel-head .sub { color: var(--muted); font-size: 0.85rem; }
+  canvas.road { width: 100%; height: 160px; display: block; border-radius: 6px; }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 6px; margin-top: 10px; }
+  @media (max-width: 560px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .metric { background: var(--inset); border-radius: 7px; padding: 7px 9px; min-width: 0; }
+  .metric .k { font-size: 0.74rem; color: var(--muted); line-height: 1.25; }
+  .metric .v { font-size: 1.08rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.3; white-space: nowrap; }
+  .metric .s { font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 14px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0; background: var(--c); }
+
+  .compare { font-size: 0.92rem; }
+  .compare table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .compare th, .compare td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .compare th:first-child, .compare td:first-child { text-align: left; font-weight: 500; }
+  .compare thead th { font-weight: 600; font-size: 0.8rem; color: var(--muted); }
+  .compare tbody tr:last-child td { border-bottom: 0; }
+  .compare p { margin: 10px 0 0; color: var(--muted); font-size: 0.86rem; }
+
+  .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chart-head h2 { margin: 0; }
+  .segs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 0.82rem; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--primary); color: var(--primary-text); }
+  canvas.chart { width: 100%; height: 200px; display: block; }
+
+  .explain { max-width: 78ch; }
+  .explain p { margin: 0 0 8px; }
+  .explain p:last-child { margin-bottom: 0; }
+  details { max-width: 78ch; }
+  details summary { cursor: pointer; font-weight: 600; font-size: 0.95rem; }
+  details ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 0.9rem; }
+  details li { margin-bottom: 4px; }
+  .vis-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Early merge vs. zipper merge</h1>
+    <p>Two lanes feed one gate that lets through one car at a time. All three roads below get exactly the same cars at exactly the same moments; the only difference is how the cars line up.</p>
+  </header>
+
+  <div class="layout">
+    <section class="card controls-card" aria-labelledby="ctl-h">
+      <h2 id="ctl-h">Controls</h2>
+      <div class="groups">
+        <div class="group">
+          <h3>Traffic arriving</h3>
+          <div class="ctl">
+            <label for="lambda">Arrival rate</label>
+            <input type="range" id="lambda" min="0.1" max="3" step="0.05" value="0.75" aria-describedby="lambdaOut">
+            <output id="lambdaOut" for="lambda"></output>
+          </div>
+          <div class="ctl">
+            <label for="cv">Arrival irregularity (coefficient of variation of the gap)</label>
+            <input type="range" id="cv" min="0" max="2" step="0.05" value="1" aria-describedby="cvOut">
+            <output id="cvOut" for="cv"></output>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Bottleneck</h3>
+          <div class="ctl">
+            <label for="mu">Gate rate</label>
+            <input type="range" id="mu" min="0.2" max="1.6" step="0.05" value="0.8" aria-describedby="muOut">
+            <output id="muOut" for="mu"></output>
+          </div>
+          <p class="hint" id="loadHint"></p>
+        </div>
+
+        <div class="group">
+          <h3>Merge friction (gate slows while merging)</h3>
+          <div class="ctl">
+            <label for="fEarly">Early-merge friction</label>
+            <input type="range" id="fEarly" min="0" max="50" step="1" value="0" aria-describedby="fEarlyOut">
+            <output id="fEarlyOut" for="fEarly"></output>
+          </div>
+          <div class="ctl">
+            <label for="fZip">Zipper friction</label>
+            <input type="range" id="fZip" min="0" max="50" step="1" value="0" aria-describedby="fZipOut">
+            <output id="fZipOut" for="fZip"></output>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Panel C: late mergers</h3>
+          <div class="ctl">
+            <label for="lateN">How many closing-lane cars skip the early merge</label>
+            <input type="range" id="lateN" min="2" max="40" step="1" value="10" aria-describedby="lateNOut">
+            <output id="lateNOut" for="lateN"></output>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Run</h3>
+          <div class="ctl">
+            <label for="speed">Simulation speed</label>
+            <input type="range" id="speed" min="0" max="5" step="1" value="2" aria-describedby="speedOut">
+            <output id="speedOut" for="speed"></output>
+          </div>
+          <div class="run">
+            <button id="pause" class="primary" aria-pressed="false">Pause</button>
+            <button id="reset">Reset</button>
+            <label class="seed">Seed <input type="number" id="seed" min="1" max="2147483647" step="1" value="12345" inputmode="numeric"></label>
+            <button id="newSeed">New seed</button>
+          </div>
+          <p class="hint">Slider changes apply immediately to cars still to come. Reset replays the seed from the start, so a given seed and settings always produce the same run.</p>
+          <p class="status" id="status" aria-live="off"></p>
+        </div>
+      </div>
+    </section>
+
+    <div class="panels">
+      <section class="card" aria-labelledby="early-h">
+        <div class="panel-head">
+          <h2 id="early-h"><span class="swatch" style="background: var(--early)"></span>A · Early merge</h2>
+          <span class="sub">Move into the through lane at the merge zone (or at the back of the queue) and wait in one file.</span>
+        </div>
+        <canvas class="road" id="cvEarly" role="img" aria-label="Animated road for the early-merge strategy"></canvas>
+        <div class="metrics" id="mEarly"></div>
+      </section>
+
+      <section class="card" aria-labelledby="zip-h">
+        <div class="panel-head">
+          <h2 id="zip-h"><span class="swatch" style="background: var(--zip)"></span>B · Zipper merge</h2>
+          <span class="sub">Use both lanes all the way to the gate, then alternate one car from each lane.</span>
+        </div>
+        <canvas class="road" id="cvZip" role="img" aria-label="Animated road for the zipper-merge strategy"></canvas>
+        <div class="metrics" id="mZip"></div>
+      </section>
+
+      <section class="card" aria-labelledby="mixed-h">
+        <div class="panel-head">
+          <h2 id="mixed-h"><span class="swatch" style="background: var(--mix)"></span>C · Early merge with late mergers</h2>
+          <span class="sub" id="mixedSub"></span>
+        </div>
+        <canvas class="road" id="cvMixed" role="img" aria-label="Animated road for early merge with late mergers"></canvas>
+        <div class="metrics" id="mMixed"></div>
+        <div class="legend">
+          <span style="--c: var(--lane0)">car that arrived in the through lane</span>
+          <span style="--c: var(--lane1)">car that arrived in the closing lane</span>
+          <span style="--c: linear-gradient(to bottom, var(--lane1) 30%, #fff 30%, #fff 70%, var(--lane1) 70%)">late merger (white stripe)</span>
+          <span style="--c: var(--bad)">gate closed (red bar) · brake lights on slow cars</span>
+          <span style="--c: var(--ok)">gate open</span>
+        </div>
+      </section>
+
+      <section class="card compare" aria-labelledby="cmp-h">
+        <h2 id="cmp-h">Side by side</h2>
+        <table>
+          <thead><tr><th scope="col">Metric</th><th scope="col">A · Early</th><th scope="col">B · Zipper</th><th scope="col">C · Late mergers</th></tr></thead>
+          <tbody>
+            <tr><td>Cars through</td><td id="c-th-e">0</td><td id="c-th-z">0</td><td id="c-th-m">0</td></tr>
+            <tr><td>Average wait</td><td id="c-aw-e">—</td><td id="c-aw-z">—</td><td id="c-aw-m">—</td></tr>
+            <tr><td>Queue now</td><td id="c-q-e">—</td><td id="c-q-z">—</td><td id="c-q-m">—</td></tr>
+          </tbody>
+        </table>
+        <p id="cmpNote"></p>
+      </section>
+
+      <section class="card" aria-labelledby="chart-h">
+        <div class="chart-head">
+          <h2 id="chart-h">Queues over the last two minutes</h2>
+          <div class="segs">
+            <div class="seg" role="group" aria-label="What to plot">
+              <button id="viewBoth" aria-pressed="true">both queues</button>
+              <button id="viewRatio" aria-pressed="false">ratio vs. zipper</button>
+            </div>
+            <div class="seg" role="group" aria-label="Unit">
+              <button id="modeCars" aria-pressed="true">cars</button>
+              <button id="modeMeters" aria-pressed="false">meters</button>
+            </div>
+          </div>
+        </div>
+        <canvas class="chart" id="cvChart" role="img" aria-label="Line chart of queue length over time for both strategies"></canvas>
+        <p class="hint" id="chartHint" hidden>Each queue divided by the zipper queue (A ÷ B in violet, C ÷ B in orange), on a log scale so 2× and ½× sit the same distance from the 1× line. A line is only drawn while both queues hold at least 3 cars; in meters, 2× means the zipper is making full use of both lanes.</p>
+      </section>
+
+      <section class="card explain" aria-labelledby="why-h">
+        <h2 id="why-h">Why the throughput matches</h2>
+        <p>The gate is a hard, fixed-rate server: it releases at most one car every T seconds, whatever is going on upstream. As soon as a queue exists, the gate is the only thing limiting flow, so both strategies send through the same cars per minute, and the total time cars spend waiting is the same too. The strategies only decide <em>where</em> the waiting happens: early merge stacks it in one lane, zipper spreads it across two, so the zipper queue is about half as long in meters.</p>
+        <p>Panel C shows that queue-jumping is a transfer, not a saving: each late merger skips the line, and every car behind the slot it takes waits one gate interval longer. The gate's rate, and so the total, is unchanged — only who pays changes (compare the late mergers' wait with everyone else's in C's tiles).</p>
+        <p>Friction is where the strategies can part ways. If the act of merging makes the gate slower, the strategy whose merging coincides with a release pays for it — turn either friction slider up to see which one wins under which assumption. C can pay both kinds: early-merge friction for its upstream lane changes and zipper friction when a late merger cuts in at the gate.</p>
+      </section>
+
+      <details class="card">
+        <summary>Model notes and simplifications</summary>
+        <ul>
+          <li>Cars are 4.5 m long and keep at least 7 m front-to-front, so a stopped queue takes 7 m per car. Free speed is 15 m/s (54 km/h). Speed changes are instantaneous: a car moves to the position its leader allows and never overlaps it. There is no acceleration limit, which keeps the gate (not engine power) as the only bottleneck.</li>
+          <li>Arrivals: the gap between cars is drawn from a gamma distribution with mean 1/rate and the chosen coefficient of variation (0 gives perfectly even gaps, 1 is Poisson-like, 2 is very bursty). Each car picks the through lane or the closing lane 50/50 from a separate seeded stream, so changing the irregularity does not change which lane cars use. Both roads receive the identical sequence.</li>
+          <li>Gate: one car per T seconds, work-conserving (idle gate lets the next car through at once). A car waiting for the gate creeps forward so it arrives exactly when the gate reopens, which is why queues creep rather than lurch.</li>
+          <li>Early merge: the closing lane ends at 115 m. A car in it joins the single file when it reaches the merge zone (70–115 m) or gets within 30 m of the back of the queue, whichever comes first. It takes a slot only where the car behind is already 7 m back; otherwise it drops in behind that car. Letting a car in costs the file one slot, as in reality.</li>
+          <li>Late mergers (panel C): every Nth car arriving in the closing lane (N from the slider, counted in arrival order) ignores the merge sign and drives on to the gate; all other cars behave as in A. At the gate the late merger is treated like a zipper lane: when both it and the file head can reach the line in time, the gate alternates, so a lone late merger takes the very next slot. A late merger stuck behind a car that is still waiting to merge is not eligible until that car has moved over.</li>
+          <li>Zipper: both lanes run to the gate. Whenever both lanes have a car that can reach the gate in time, the gate takes the lane that did not go last; otherwise whoever is there goes. Cars are never held back for an absent partner.</li>
+          <li>Wait = time from arrival to passing the gate minus the 16.7 s an unobstructed car needs. Queue = cars moving slower than 90% of free speed in the unbroken slow region behind the gate (plus cars waiting to merge at its tail); its length is measured from the gate to the rearmost of them.</li>
+          <li>Friction: for an affected release the gate takes T ÷ (1 − friction) seconds. Zipper: the released car had waited in the queue and came from the other lane than the previous car (a genuine interleave). Early merge: a lane change is waiting, in progress, or finished within the last T seconds anywhere upstream. “Releases while merging” shows how often each condition fired.</li>
+          <li>Ratio view: each queue ÷ the zipper queue, drawn on a log scale and only while both queues hold at least 3 cars, since the ratio of two tiny queues is noise. The “typical” figure is the geometric mean over the visible window.</li>
+          <li>If a queue grows past the left edge, cars keep arriving and wait off-screen; a badge counts them. In the early-merge panel, closing-lane cars arriving while the queue is off-screen are placed at the back of the single file (they merged before reaching the view) rather than slotting in at the entry.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ==== MODEL START ===========================================================
+  const W = {
+    approach: 250,   // metres from entry to the gate
+    exit: 30,        // metres drawn after the gate
+    mergeStart: 70,  // early merge: zone where closing-lane cars move over
+    mergeEnd: 115,   // early merge: closing lane physically ends here
+    carLen: 4.5,
+    spacing: 7,      // minimum front-to-front distance
+    vMax: 15,        // m/s free speed
+    lateral: 1.2,    // seconds for a lane change
+    exitTaper: 18    // metres after the gate for a zipper car to slide into the exit lane
+  };
+  const FREE_TIME = W.approach / W.vMax;
+  const SLOW = 0.9 * W.vMax;
+  const LANE1_OCCUPIED = 0.2;   // a car this far into the closing lane still blocks it (cars are 0.52 lanes tall)
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function hashSeed(s) {
+    let x = (s ^ 0x9E3779B9) >>> 0;
+    x = Math.imul(x ^ (x >>> 16), 0x85EBCA6B) >>> 0;
+    x = Math.imul(x ^ (x >>> 13), 0xC2B2AE35) >>> 0;
+    return (x ^ (x >>> 16)) >>> 0;
+  }
+  function randn(rng) {
+    let u = 0; while (u === 0) u = rng();
+    const v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+  // Marsaglia & Tsang gamma sampler, mean = k * theta
+  function gammaSample(rng, k, theta) {
+    if (k < 1) { const u = rng(); return gammaSample(rng, k + 1, theta) * Math.pow(u, 1 / k); }
+    const d = k - 1 / 3, c = 1 / Math.sqrt(9 * d);
+    for (;;) {
+      let x, v;
+      do { x = randn(rng); v = 1 + c * x; } while (v <= 0);
+      v = v * v * v;
+      const u = rng();
+      if (u < 1 - 0.0331 * x * x * x * x) return d * v * theta;
+      if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v * theta;
+    }
+  }
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const smooth = t => t * t * (3 - 2 * t);
+
+  class Arrivals {
+    constructor(seed) {
+      this.rngGap = mulberry32(seed >>> 0);
+      this.rngLane = mulberry32(hashSeed(seed >>> 0));
+      this.nextT = null;
+    }
+    sampleGap(p) {
+      const mean = 1 / p.lambda;
+      if (p.cv < 0.02) return mean;
+      const k = 1 / (p.cv * p.cv);
+      return Math.max(0.01, gammaSample(this.rngGap, k, mean / k));
+    }
+    drain(now, p, out) {
+      if (this.nextT === null) this.nextT = this.sampleGap(p);
+      while (this.nextT <= now) {
+        out.push({ t: this.nextT, lane: this.rngLane() < 0.5 ? 0 : 1 });
+        this.nextT += this.sampleGap(p);
+      }
+    }
+  }
+
+  let carSeq = 0;
+  function makeCar(ev, x) {
+    return {
+      id: carSeq++, lane0: ev.lane, y: ev.lane, x, xPrev: x, v: W.vMax, vAvg: W.vMax, tArr: ev.t,
+      delayed: false, crossed: false, tCross: 0, latState: 'none', latT: 0, isLate: false, gateLane: 0
+    };
+  }
+
+  // Position-constraint car following: advance toward target, never pass the leader's rear.
+  function moveCar(c, leadX, capX, creep, dt) {
+    let v = W.vMax;
+    if (creep !== null && creep < v) v = creep;
+    let target = c.x + v * dt;
+    const gapLimit = leadX - W.spacing;
+    if (gapLimit < target) target = gapLimit;
+    if (capX < target) target = capX;
+    const nx = target > c.x ? target : c.x;
+    c.xPrev = c.x;
+    c.v = (nx - c.x) / dt;
+    c.vAvg += (c.v - c.vAvg) * Math.min(1, dt / 0.25);   // ~0.25 s smoothing, used only for queue detection and brake lights
+    c.x = nx;
+    if (c.v < 0.95 * W.vMax) c.delayed = true;
+  }
+  function creepV(x, xb, dtr) { return dtr > 1e-6 ? Math.max(0, xb - x) / dtr : Infinity; }
+
+  class Sim {
+    constructor(kind) { this.kind = kind; this.reset(); }   // 'early' | 'zipper' | 'mixed'
+    reset() {
+      this.file = [];          // early/mixed: the single file (through lane + cars that have joined it)
+      this.lane1 = [];         // early/mixed: closing-lane cars not in the file (waiting to merge, or late mergers)
+      this.lanes = [[], []];   // zipper
+      this.exit = [];
+      this.nextRelease = -Infinity;
+      this.lastGate = -1;      // lane the previous car crossed from
+      this.lastMergeEnd = -Infinity;
+      this.gateOpen = false;
+      this.closingCount = 0;
+      this.m = { through: 0, sumDelay: 0, maxDelay: 0, maxQueue: 0, mergeReleases: 0, crossTimes: [], lateThrough: 0, lateDelay: 0, otherDelay: 0 };
+      this.q = { count: 0, backX: null, lengthM: 0 };
+    }
+    rearLane1() {
+      let rear = Infinity;
+      if (this.lane1.length) rear = this.lane1[this.lane1.length - 1].x;
+      for (const c of this.file) if (c.y > LANE1_OCCUPIED && c.x < rear) rear = c.x;
+      return rear;
+    }
+    rearFile() {   // rearmost position of anyone in the file, whatever their logical slot
+      let rear = Infinity;
+      for (const c of this.file) if (c.x < rear) rear = c.x;
+      return rear;
+    }
+    lane1Ahead(c) {   // nearest car physically ahead in the closing lane (late mergers, or cars still waiting to move over)
+      let lead = Infinity;
+      for (const o of this.lane1) if (o.x > c.x && o.x < lead) lead = o.x;
+      for (const o of this.file) if (o !== c && o.y > LANE1_OCCUPIED && o.x > c.x && o.x < lead) lead = o.x;
+      return lead;
+    }
+    spawn(ev, now, p) {
+      const free = Math.min(W.vMax * (now - ev.t), 2);
+      if (this.kind === 'zipper') {
+        const L = this.lanes[ev.lane];
+        const last = L.length ? L[L.length - 1] : null;
+        const x = last ? Math.min(free, last.x - W.spacing) : free;
+        const car = makeCar(ev, x);
+        if (x < free - 1e-9) car.delayed = true;
+        L.push(car);
+        return;
+      }
+      if (ev.lane === 0) {
+        const rear = this.rearFile();
+        const x = rear < Infinity ? Math.min(free, rear - W.spacing) : free;
+        const car = makeCar(ev, x);
+        car.latState = 'done'; car.y = 0;
+        if (x < free - 1e-9) car.delayed = true;
+        this.file.push(car);
+        return;
+      }
+      let late = false;
+      if (this.kind === 'mixed') { this.closingCount++; late = this.closingCount % p.lateN === 0; }
+      if (!late && this.q.count && this.q.backX < 0 && this.file.length) {
+        // the queue already stretches past the entry: this car merged off-screen at the back of the single file
+        const car = makeCar(ev, Math.min(free, this.rearFile() - W.spacing));
+        car.latState = 'done'; car.y = 0; car.delayed = true;
+        this.file.push(car);
+        return;
+      }
+      const rear = this.rearLane1();
+      const x = rear < Infinity ? Math.min(free, rear - W.spacing) : free;
+      const car = makeCar(ev, x);
+      car.y = 1; car.isLate = late;
+      if (x < free - 1e-9) car.delayed = true;
+      this.lane1.push(car);
+    }
+    joinFile(c) {
+      const file = this.file;
+      let i = 0;
+      while (i < file.length && file[i].x > c.x) i++;                    // skip cars ahead
+      while (i < file.length && c.x - file[i].x < W.spacing) i++;        // skip cars that are too close behind (or not actually behind)
+      file.splice(i, 0, c);
+      c.latState = 'waiting';
+    }
+    mergingActive(now, T) {
+      for (const c of this.file) if (c.latState === 'waiting' || c.latState === 'sliding') return true;
+      return now - this.lastMergeEnd < T;
+    }
+    cross(car, now, dt, p, T, gateLane) {
+      const xb = W.approach;
+      let tc;
+      if (car.xPrev >= xb || car.x <= car.xPrev) tc = now;
+      else tc = now + dt * (xb - car.xPrev) / (car.x - car.xPrev);
+      tc = Math.max(tc, this.nextRelease);
+      const interleave = this.lastGate >= 0 && gateLane !== this.lastGate && car.delayed;
+      let activeE = false, activeZ = false;
+      if (this.kind === 'zipper') activeZ = interleave;
+      else { activeE = this.mergingActive(now, T); if (this.kind === 'mixed') activeZ = interleave; }
+      let Teff = T;
+      if (activeE && p.fEarly > 0) Teff /= (1 - p.fEarly);
+      if (activeZ && p.fZip > 0) Teff /= (1 - p.fZip);
+      if (activeE || activeZ) this.m.mergeReleases++;
+      this.nextRelease = tc + Teff;
+      this.lastGate = gateLane;
+      car.gateLane = gateLane;
+      car.crossed = true; car.tCross = tc;
+      const delay = Math.max(0, tc - car.tArr - FREE_TIME);
+      this.m.through++;
+      this.m.sumDelay += delay;
+      if (delay > this.m.maxDelay) this.m.maxDelay = delay;
+      this.m.crossTimes.push(tc);
+      if (this.kind === 'mixed') {
+        if (car.isLate) { this.m.lateThrough++; this.m.lateDelay += delay; } else this.m.otherDelay += delay;
+      }
+      if (this.kind === 'zipper') this.lanes[gateLane].shift();
+      else if (gateLane === 1) this.lane1.shift();
+      else this.file.shift();
+      this.exit.push(car);
+    }
+    step(now, dt, p) {
+      const T = 1 / p.mu;
+      const end = now + dt;
+      const xb = W.approach;
+
+      // cars past the gate
+      for (let i = 0; i < this.exit.length; i++) {
+        const c = this.exit[i];
+        moveCar(c, i > 0 ? this.exit[i - 1].x : Infinity, Infinity, null, dt);
+        if (c.gateLane === 1) c.y = 1 - smooth(clamp((c.x - xb) / W.exitTaper, 0, 1));
+      }
+      const exitLead = this.exit.length ? this.exit[this.exit.length - 1].x : Infinity;
+      const ref = Math.max(this.nextRelease, now);
+
+      // who is in line for the gate in each lane
+      let h0, h1;
+      if (this.kind === 'zipper') { h0 = this.lanes[0][0]; h1 = this.lanes[1][0]; }
+      else {
+        h0 = this.file[0];
+        if (this.kind === 'mixed' && this.lane1.length && this.lane1[0].isLate) {
+          const lm = this.lane1[0];
+          let blocked = false;
+          for (const f of this.file) if (f.y > LANE1_OCCUPIED && f.x > lm.x) { blocked = true; break; }
+          if (!blocked) h1 = lm;
+        }
+      }
+      let des = -1;
+      if (h0 && !h1) des = 0;
+      else if (h1 && !h0) des = 1;
+      else if (h0 && h1) {
+        const eta0 = now + Math.max(0, xb - h0.x) / W.vMax;
+        const eta1 = now + Math.max(0, xb - h1.x) / W.vMax;
+        const can0 = eta0 <= ref + 1e-9, can1 = eta1 <= ref + 1e-9;
+        if (can0 && can1) des = this.lastGate === 0 ? 1 : 0;
+        else if (can0) des = 0;
+        else if (can1) des = 1;
+        else des = eta0 <= eta1 ? 0 : 1;
+      }
+      const permitted = des >= 0 && this.nextRelease <= end;
+      this.gateOpen = permitted;
+      const headMove = (c, lead, lane) => {
+        if (lane === des && permitted) moveCar(c, lead, Infinity, null, dt);
+        else if (lane === des) moveCar(c, lead, xb, creepV(c.x, xb, this.nextRelease - now), dt);
+        else moveCar(c, lead, xb, creepV(c.x, xb, ref + T - now), dt);
+      };
+
+      if (this.kind === 'zipper') {
+        for (let L = 0; L < 2; L++) {
+          const list = this.lanes[L];
+          for (let i = 0; i < list.length; i++) {
+            const c = list[i];
+            const lead = i > 0 ? list[i - 1].x : exitLead;
+            if (i === 0) headMove(c, lead, L); else moveCar(c, lead, Infinity, null, dt);
+          }
+        }
+      } else {
+        // A car in the file never passes any car ahead of it in the file, not just its direct predecessor:
+        // a car that is still waiting in the closing lane can be physically ahead of cars it is logically behind.
+        let minAhead = exitLead;
+        for (let i = 0; i < this.file.length; i++) {
+          const c = this.file[i];
+          let lead = minAhead;
+          if (c.y > LANE1_OCCUPIED) lead = Math.min(lead, this.lane1Ahead(c));   // still in the closing lane: respect whoever is ahead there too
+          if (i === 0) headMove(c, lead, 0);
+          else moveCar(c, lead, c.latState === 'waiting' ? W.mergeEnd - 2 : Infinity, null, dt);
+          if (c.x < minAhead) minAhead = c.x;
+        }
+        for (let i = 0; i < this.lane1.length; i++) {
+          const c = this.lane1[i];
+          let lead = i > 0 ? this.lane1[i - 1].x : Infinity;
+          for (const f of this.file) if (f.y > LANE1_OCCUPIED && f.x > c.x && f.x < lead) lead = f.x;   // cars still waiting to move over
+          if (!c.isLate) moveCar(c, lead, W.mergeEnd - 2, null, dt);
+          else if (c === h1) headMove(c, Math.min(lead, exitLead), 1);
+          else moveCar(c, lead, xb, null, dt);
+        }
+      }
+      if (permitted) {
+        const hd = des === 0 ? h0 : h1;
+        if (hd.x >= xb) this.cross(hd, now, dt, p, T, des);
+      }
+
+      if (this.kind !== 'zipper') {
+        // decide who joins the single file
+        const qBack = this.q.count ? this.q.backX : Infinity;
+        for (let i = 0; i < this.lane1.length;) {
+          const c = this.lane1[i];
+          if (!c.isLate && (c.x >= W.mergeStart || c.x >= qBack - 30)) { this.lane1.splice(i, 1); this.joinFile(c); }
+          else i++;
+        }
+        // lane-change animation: slide over only once every car ahead in the file is clear of this spot
+        let clearAhead = exitLead;
+        for (let i = 0; i < this.file.length; i++) {
+          const c = this.file[i];
+          if (c.latState === 'waiting' && clearAhead - c.x >= 5) { c.latState = 'sliding'; c.latT = 0; }
+          if (c.x < clearAhead) clearAhead = c.x;
+          if (c.latState === 'sliding') {
+            c.latT += dt / W.lateral;
+            if (c.latT >= 1) { c.latT = 1; c.latState = 'done'; c.y = 0; this.lastMergeEnd = now; }
+            else c.y = 1 - smooth(c.latT);
+          }
+        }
+      }
+
+      while (this.exit.length && this.exit[0].x > W.approach + W.exit + 15) this.exit.shift();
+      this.updateQueue();
+    }
+    updateQueue() {
+      const xb = W.approach;
+      let count = 0, back = xb;
+      const walk = list => {
+        for (let i = 0; i < list.length; i++) {
+          const c = list[i];
+          if (!(c.vAvg < SLOW)) { if (i === 0) continue; break; }   // the first car may be the one pulling away
+          count++;
+          if (c.x < back) back = c.x;
+        }
+      };
+      if (this.kind === 'zipper') { walk(this.lanes[0]); walk(this.lanes[1]); }
+      else {
+        walk(this.file);
+        let lateBack = xb;   // late mergers lined up at the gate form their own short chain
+        for (const c of this.lane1) {
+          if (!(c.vAvg < SLOW)) continue;
+          if (c.isLate) { if (c.x >= lateBack - 30) { count++; lateBack = c.x; if (c.x < back) back = c.x; } }
+          else if (count && c.x >= back - 30) { count++; if (c.x < back) back = c.x; }
+        }
+      }
+      this.q.count = count;
+      this.q.backX = count ? back : null;
+      this.q.lengthM = count ? Math.max(0, xb - back) : 0;
+      if (count > this.m.maxQueue) this.m.maxQueue = count;
+    }
+    throughput(now) {
+      const ct = this.m.crossTimes;
+      while (ct.length && ct[0] < now - 60) ct.shift();
+      if (now < 10) return null;
+      return ct.length * 60 / Math.min(60, now);
+    }
+    offscreen() {
+      let n = 0;
+      const lists = this.kind === 'zipper' ? this.lanes : [this.file, this.lane1];
+      for (const l of lists) for (const c of l) if (c.x < 0) n++;
+      return n;
+    }
+  }
+
+  class World {
+    constructor(seed) {
+      this.seed = seed;
+      this.arrivals = new Arrivals(seed);
+      this.early = new Sim('early');
+      this.zip = new Sim('zipper');
+      this.mixed = new Sim('mixed');
+      this.sims = [this.early, this.zip, this.mixed];
+      this.t = 0;
+      this.samples = [];
+      this.lastSample = -1;
+      this.pending = [];
+    }
+    step(dt, p) {
+      const now = this.t;
+      this.arrivals.drain(now, p, this.pending);
+      for (const ev of this.pending) for (const sim of this.sims) sim.spawn(ev, now, p);
+      this.pending.length = 0;
+      for (const sim of this.sims) sim.step(now, dt, p);
+      this.t += dt;
+      if (this.t - this.lastSample >= 0.5) {
+        this.samples.push({ t: this.t, qe: this.early.q.count, qz: this.zip.q.count, qm: this.mixed.q.count,
+          me: this.early.q.lengthM, mz: this.zip.q.lengthM, mm: this.mixed.q.lengthM });
+        this.lastSample = this.t;
+        while (this.samples.length && this.samples[0].t < this.t - 130) this.samples.shift();
+      }
+    }
+  }
+  // ==== MODEL END =============================================================
+
+  if (typeof window === 'undefined') { module.exports = { W, Arrivals, Sim, World }; return; }
+
+  // ==== UI ====================================================================
+  const $ = id => document.getElementById(id);
+  const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+  const DT = 1 / 120;
+  const P = { lambda: 0.75, cv: 1, mu: 0.8, fEarly: 0, fZip: 0, lateN: 10 };
+  let speedIdx = 2, paused = false, chartMode = 'cars', chartView = 'both';
+  let world = new World(readSeed());
+
+  function readSeed() {
+    const v = parseInt($('seed').value, 10);
+    if (!Number.isFinite(v) || v < 1) { $('seed').value = '1'; return 1; }
+    return v;
+  }
+
+  const fmt2 = v => v.toFixed(2);
+  function ordinal(n) { const r = n % 100; if (r >= 11 && r <= 13) return n + 'th'; const m = n % 10; return n + (m === 1 ? 'st' : m === 2 ? 'nd' : m === 3 ? 'rd' : 'th'); }
+  const fmtS = s => s < 100 ? s.toFixed(1) + ' s' : Math.round(s) + ' s';
+  function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + (s < 10 ? '0' : '') + s; }
+  function cvWord(v) {
+    if (v < 0.05) return 'clockwork, perfectly even gaps';
+    if (v < 0.5) return 'fairly regular';
+    if (v < 0.85) return 'mildly irregular';
+    if (v <= 1.15) return 'Poisson-like, memoryless';
+    if (v < 1.6) return 'bursty';
+    return 'very bursty, platoons and long gaps';
+  }
+  function frictionWord(v) { return v === 0 ? '0% — off' : v + '% — gate takes ×' + (1 / (1 - v / 100)).toFixed(2) + ' as long on an affected release'; }
+
+  function bindRange(id, fmt, apply) {
+    const el = $(id), out = $(id + 'Out');
+    const update = () => { const v = parseFloat(el.value); apply(v); out.textContent = fmt(v); updateLoadHint(); };
+    el.addEventListener('input', update);
+    update();
+  }
+  function updateLoadHint() {
+    const load = P.lambda / P.mu;
+    let word;
+    if (load < 0.7) word = 'the queue stays short';
+    else if (load < 0.9) word = 'occasional queues';
+    else if (load <= 1.02) word = 'near saturation, the queue wanders';
+    else word = 'the queue grows without bound';
+    $('loadHint').textContent = 'Load = arrivals ÷ gate rate = ' + load.toFixed(2) + ' → ' + word + '.';
+  }
+  bindRange('lambda', v => fmt2(v) + ' cars/s · ' + Math.round(v * 60) + ' per minute across both lanes', v => { P.lambda = v; });
+  bindRange('cv', v => fmt2(v) + ' · ' + cvWord(v), v => { P.cv = v; });
+  bindRange('mu', v => fmt2(v) + ' cars/s · one car every ' + fmt2(1 / v) + ' s · ' + Math.round(v * 60) + ' per minute', v => { P.mu = v; });
+  bindRange('fEarly', frictionWord, v => { P.fEarly = v / 100; });
+  bindRange('fZip', frictionWord, v => { P.fZip = v / 100; });
+  bindRange('speed', v => SPEEDS[v] + '×', v => { speedIdx = v; });
+  bindRange('lateN', v => '1 in ' + v + ' closing-lane cars (about ' + Math.round(50 / v) + '% of all cars)', v => {
+    P.lateN = v;
+    $('mixedSub').textContent = 'Like A, but every ' + ordinal(v) + ' car arriving in the closing lane ignores the merge sign, drives on to the gate and takes the next slot.';
+  });
+
+  $('pause').addEventListener('click', () => {
+    paused = !paused;
+    $('pause').textContent = paused ? 'Resume' : 'Pause';
+    $('pause').setAttribute('aria-pressed', String(paused));
+  });
+  function resetWorld() { world = new World(readSeed()); }
+  $('reset').addEventListener('click', resetWorld);
+  $('seed').addEventListener('change', resetWorld);
+  $('newSeed').addEventListener('click', () => { $('seed').value = String(1 + Math.floor(Math.random() * 999999)); resetWorld(); });
+  $('modeCars').addEventListener('click', () => setMode('cars'));
+  $('modeMeters').addEventListener('click', () => setMode('meters'));
+  $('viewBoth').addEventListener('click', () => setView('both'));
+  $('viewRatio').addEventListener('click', () => setView('ratio'));
+  function setMode(m) {
+    chartMode = m;
+    $('modeCars').setAttribute('aria-pressed', String(m === 'cars'));
+    $('modeMeters').setAttribute('aria-pressed', String(m === 'meters'));
+  }
+  function setView(v) {
+    chartView = v;
+    $('viewBoth').setAttribute('aria-pressed', String(v === 'both'));
+    $('viewRatio').setAttribute('aria-pressed', String(v === 'ratio'));
+    $('chartHint').hidden = v !== 'ratio';
+    $('cvChart').setAttribute('aria-label', v === 'ratio'
+      ? 'Line chart of the early-merge and late-merger queues divided by the zipper queue over time, log scale'
+      : 'Line chart of queue length over time for all three strategies');
+  }
+
+  // metric tiles
+  const METRICS = [
+    ['qc', 'Queue now', 'qm'], ['mq', 'Max queue', null], ['aw', 'Average wait', null], ['mw', 'Max wait', null],
+    ['tp', 'Throughput', 'tps'], ['tt', 'Cars through', null], ['fr', 'Releases while merging', 'frs']
+  ];
+  function buildMetrics(container, extra) {
+    const els = {};
+    for (const [key, label, subKey] of METRICS.concat(extra || [])) {
+      const d = document.createElement('div');
+      d.className = 'metric';
+      const k = document.createElement('div'); k.className = 'k'; k.textContent = label;
+      const v = document.createElement('div'); v.className = 'v'; v.textContent = '—';
+      d.appendChild(k); d.appendChild(v);
+      els[key] = v;
+      if (subKey) { const s = document.createElement('div'); s.className = 's'; s.textContent = ' '; d.appendChild(s); els[subKey] = s; }
+      container.appendChild(d);
+    }
+    return els;
+  }
+  const mEls = { early: buildMetrics($('mEarly')), zip: buildMetrics($('mZip')), mixed: buildMetrics($('mMixed'), [['lt', 'Late mergers through', 'lts']]) };
+
+  function updateMetrics(sim, els, now) {
+    els.qc.textContent = sim.q.count + (sim.q.count === 1 ? ' car' : ' cars');
+    els.qm.textContent = sim.q.count ? Math.round(sim.q.lengthM) + ' m long' : 'no queue';
+    els.mq.textContent = sim.m.maxQueue + (sim.m.maxQueue === 1 ? ' car' : ' cars');
+    els.aw.textContent = sim.m.through ? fmtS(sim.m.sumDelay / sim.m.through) : '—';
+    els.mw.textContent = sim.m.through ? fmtS(sim.m.maxDelay) : '—';
+    const tp = sim.throughput(now);
+    els.tp.textContent = tp === null ? '—' : tp.toFixed(1) + '/min';
+    els.tps.textContent = tp === null ? 'needs 10 s of data' : 'last ' + Math.round(Math.min(60, now)) + ' s';
+    els.tt.textContent = String(sim.m.through);
+    els.fr.textContent = sim.m.through ? Math.round(100 * sim.m.mergeReleases / sim.m.through) + '%' : '—';
+    const f = sim.kind === 'early' ? P.fEarly : sim.kind === 'zipper' ? P.fZip : Math.max(P.fEarly, P.fZip);
+    els.frs.textContent = f > 0 ? 'friction applied to these' : 'friction off';
+    if (sim.kind === 'mixed') {
+      const m = sim.m;
+      els.lt.textContent = String(m.lateThrough);
+      const others = m.through - m.lateThrough;
+      els.lts.textContent = m.lateThrough && others
+        ? 'waited ' + fmtS(m.lateDelay / m.lateThrough) + ' vs ' + fmtS(m.otherDelay / others) + ' for the rest'
+        : 'none yet';
+    }
+  }
+
+  // theme
+  let TH = readTheme();
+  function readTheme() {
+    const s = getComputedStyle(document.documentElement);
+    const g = n => s.getPropertyValue(n).trim();
+    return {
+      road: g('--road'), roadEdge: g('--road-edge'), line: g('--road-line'), closedBg: g('--closed-bg'), closed: g('--closed'),
+      text: g('--text'), muted: g('--muted'), lane0: g('--lane0'), lane1: g('--lane1'), early: g('--early'), zip: g('--zip'),
+      ok: g('--ok'), bad: g('--bad'), queue: g('--queue'), grid: g('--border'), panel: g('--panel'), inset: g('--inset'), mix: g('--mix')
+    };
+  }
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (mq.addEventListener) mq.addEventListener('change', () => { TH = readTheme(); });
+  else if (mq.addListener) mq.addListener(() => { TH = readTheme(); });
+
+  function prepCanvas(cv) {
+    const w = cv.clientWidth, h = cv.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    const pw = Math.max(1, Math.round(w * dpr)), ph = Math.max(1, Math.round(h * dpr));
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function drawPanel(sim, cv) {
+    const { ctx, w } = prepCanvas(cv);
+    const total = W.approach + W.exit, sx = w / total;
+    const laneH = 28, top = 40;
+    const roadBottom = top + 2 * laneH;
+    const xb = W.approach * sx;
+    const lane1End = (sim.kind === 'early' ? W.mergeEnd : W.approach) * sx;
+    const font = '11px "Avenir Next", "Segoe UI", system-ui, sans-serif';
+
+    // road surface
+    ctx.fillStyle = TH.road;
+    ctx.fillRect(0, top, w, 2 * laneH);
+
+    // closed stretch of the closing lane (hatched, with a taper)
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(lane1End, roadBottom);
+    ctx.lineTo(lane1End + 14 * sx, top + laneH);
+    ctx.lineTo(w, top + laneH);
+    ctx.lineTo(w, roadBottom);
+    ctx.closePath();
+    ctx.clip();
+    ctx.fillStyle = TH.closedBg;
+    ctx.fillRect(lane1End, top + laneH, w - lane1End, laneH);
+    ctx.strokeStyle = TH.closed;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 2;
+    for (let x = lane1End - laneH; x < w; x += 11) {
+      ctx.beginPath(); ctx.moveTo(x, roadBottom); ctx.lineTo(x + laneH, top + laneH); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = TH.closed;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lane1End, roadBottom); ctx.lineTo(lane1End + 14 * sx, top + laneH); ctx.stroke();
+
+    // lane divider and edges
+    ctx.strokeStyle = TH.line;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath(); ctx.moveTo(0, top + laneH); ctx.lineTo(lane1End, top + laneH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = TH.roadEdge;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(w, top + 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, roadBottom - 0.5); ctx.lineTo(lane1End, roadBottom - 0.5); ctx.stroke();
+
+    // merge sign: chevrons pointing to the through lane
+    if (sim.kind !== 'zipper') {
+      ctx.strokeStyle = TH.line;
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1.5;
+      const yc = top + 1.5 * laneH;
+      for (let m = W.mergeStart + 4; m < W.mergeEnd - 4; m += 9) {
+        const x = m * sx;
+        ctx.beginPath(); ctx.moveTo(x - 4, yc + 5); ctx.lineTo(x, yc - 5); ctx.lineTo(x + 4, yc + 5); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // queue shading
+    if (sim.q.count) {
+      const bx = Math.max(0, sim.q.backX * sx);
+      ctx.fillStyle = TH.queue;
+      ctx.fillRect(bx, top, xb - bx, sim.kind === 'zipper' ? 2 * laneH : laneH);
+    }
+
+    // gate
+    ctx.fillStyle = sim.gateOpen ? TH.ok : TH.bad;
+    const gateH = (sim.kind === 'early' ? laneH : 2 * laneH);
+    ctx.fillRect(xb - 2, top - 3, 4, gateH + 6);
+
+    // cars
+    const len = Math.max(6, W.carLen * sx), h = laneH * 0.52;
+    const drawCar = c => {
+      const x1 = c.x * sx;
+      if (x1 < 0) return;
+      const yC = top + laneH * (0.5 + c.y);
+      ctx.fillStyle = c.lane0 ? TH.lane1 : TH.lane0;
+      roundRect(ctx, x1 - len, yC - h / 2, len, h, 2);
+      ctx.fill();
+      if (!c.crossed && c.vAvg < 0.5 * W.vMax) { ctx.fillStyle = TH.bad; ctx.fillRect(x1 - len, yC - h / 2 + 2, 2, h - 4); }
+      if (c.isLate) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(x1 - len + 2, yC - 1, len - 4, 2); }
+    };
+    for (const c of sim.exit) drawCar(c);
+    if (sim.kind === 'zipper') { for (const c of sim.lanes[0]) drawCar(c); for (const c of sim.lanes[1]) drawCar(c); }
+    else { for (const c of sim.file) drawCar(c); for (const c of sim.lane1) drawCar(c); }
+
+    // labels
+    ctx.font = font;
+    ctx.fillStyle = TH.muted;
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillText('entry', 4, top - 10);
+    if (sim.kind !== 'zipper') {
+      ctx.textAlign = 'center';
+      ctx.fillText('merge here', (W.mergeStart + W.mergeEnd) / 2 * sx, top - 10);
+    }
+    ctx.textAlign = 'right';
+    ctx.fillText('gate · 1 car / ' + fmt2(1 / P.mu) + ' s', xb - 7, top - 10);
+    ctx.textAlign = 'left';
+    ctx.fillText('exit', xb + 7, top - 10);
+
+    // queue back marker
+    if (sim.q.count) {
+      const bx = clamp(sim.q.backX * sx, 0, xb);
+      ctx.strokeStyle = TH.bad;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(bx + 0.5, roadBottom); ctx.lineTo(bx + 0.5, roadBottom + 12); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = TH.text;
+      const label = 'queue back · ' + Math.round(sim.q.lengthM) + ' m to the gate';
+      const tw = ctx.measureText(label).width;
+      let lx = bx + 5; if (lx + tw > w - 4) lx = bx - 5 - tw;
+      ctx.textAlign = 'left';
+      ctx.fillText(label, Math.max(4, lx), roadBottom + 23);
+    }
+
+    // off-screen badge
+    const off = sim.offscreen();
+    if (off) {
+      const label = '◀ ' + off + ' more waiting off-screen';
+      ctx.font = font;
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = TH.bad;
+      roundRect(ctx, 4, roadBottom + 30, tw + 14, 20, 5);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, 11, roadBottom + 44);
+    }
+  }
+
+  function niceCeil(v) {
+    if (v <= 0) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+    return 10 * p;
+  }
+
+  function drawChart(cv) {
+    const { ctx, w, h } = prepCanvas(cv);
+    if (chartView === 'ratio') drawRatio(ctx, w, h);
+    else drawBoth(ctx, w, h);
+  }
+
+  function ratioLabel(e) {
+    if (e === 0) return '1×';
+    if (e > 0) return Math.pow(2, e) + '×';
+    if (e === -1) return '½×';
+    if (e === -2) return '¼×';
+    if (e === -3) return '⅛×';
+    return '1/' + Math.pow(2, -e) + '×';
+  }
+
+  function drawRatio(ctx, w, h) {
+    const L = 46, R = 14, Tm = 14, B = 26;
+    const pw = w - L - R, ph = h - Tm - B;
+    const win = 120;
+    const tNow = world.t;
+    const t0 = Math.max(0, tNow - win), t1 = Math.max(win, tNow);
+    const cars = chartMode === 'cars';
+    const MIN_CARS = 3;
+    const series = [
+      { name: 'A ÷ B', num: cars ? 'qe' : 'me', numCars: 'qe', color: TH.early },
+      { name: 'C ÷ B', num: cars ? 'qm' : 'mm', numCars: 'qm', color: TH.mix }
+    ];
+    const den = cars ? 'qz' : 'mz';
+
+    let maxDev = 0;
+    for (const sr of series) {
+      sr.pts = []; sr.sumLog = 0; sr.n = 0;
+      for (const s of world.samples) {
+        if (s.t < t0) continue;
+        if (s[sr.numCars] >= MIN_CARS && s.qz >= MIN_CARS && s[den] > 0) {
+          const d = Math.log2(s[sr.num] / s[den]);
+          sr.pts.push({ t: s.t, d });
+          if (Math.abs(d) > maxDev) maxDev = Math.abs(d);
+          sr.sumLog += d; sr.n++;
+        } else sr.pts.push({ t: s.t, d: null });
+      }
+    }
+    let E = 2;                                   // axis spans 1/2^E … 2^E
+    while (E < 6 && Math.pow(2, E) < Math.pow(2, maxDev) * 1.15) E++;
+    const X = t => L + (t - t0) / (t1 - t0) * pw;
+    const Y = d => Tm + ph / 2 - d / E * (ph / 2);
+
+    ctx.font = '11px "Avenir Next", "Segoe UI", system-ui, sans-serif';
+    ctx.lineWidth = 1;
+    ctx.textBaseline = 'middle';
+    for (let e = -E; e <= E; e++) {
+      const y = Math.round(Y(e)) + 0.5;
+      ctx.strokeStyle = e === 0 ? TH.muted : TH.grid;
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(w - R, y); ctx.stroke();
+      ctx.fillStyle = e === 0 ? TH.text : TH.muted;
+      ctx.textAlign = 'right';
+      ctx.fillText(ratioLabel(e), L - 6, y);
+    }
+    // guide at 2× for metres: what a fully used second lane buys
+    if (!cars && E >= 1) {
+      const y = Math.round(Y(1)) + 0.5;
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = TH.text;
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(w - R, y); ctx.stroke();
+      ctx.restore();
+      if (w >= 640) {
+        const gl = '2× = zipper using both lanes fully';
+        const gw = ctx.measureText(gl).width;
+        ctx.fillStyle = TH.panel;
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(w - R - gw - 8, y - 16, gw + 8, 15);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = TH.muted;
+        ctx.textAlign = 'right';
+        ctx.fillText(gl, w - R - 4, y - 8);
+      }
+    }
+
+    for (const sr of series) {
+      ctx.strokeStyle = sr.color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      let pen = false;
+      for (const pnt of sr.pts) {
+        if (pnt.d === null) { pen = false; continue; }
+        const x = X(pnt.t), y = Y(pnt.d);
+        if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // captions
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = TH.muted;
+    ctx.textAlign = 'left';
+    ctx.fillText('each queue ÷ zipper queue, in ' + (cars ? 'cars' : 'meters'), L, Tm - 3);
+    ctx.textAlign = 'right';
+    const typ = series.map(sr => sr.name + ' ' + (sr.n ? Math.pow(2, sr.sumLog / sr.n).toFixed(2) + '×' : '—')).join(' · ');
+    ctx.fillText(w >= 640 ? 'typical: ' + typ : typ, w - R, Tm - 3);
+    ctx.fillText(tNow < win ? 'first 2 minutes' : 'last 2 minutes · now ' + fmtTime(tNow), w - R, h - 8);
+    ctx.textAlign = 'left';
+    ctx.fillText(fmtTime(t0), L, h - 8);
+    // legend
+    ctx.textBaseline = 'middle';
+    let lx = L + 8;
+    const ly = Tm + 10;
+    for (const sr of series) {
+      ctx.fillStyle = sr.color; ctx.fillRect(lx, ly - 2, 14, 4);
+      ctx.fillStyle = TH.text; ctx.textAlign = 'left'; ctx.fillText(sr.name, lx + 19, ly);
+      lx += 19 + ctx.measureText(sr.name).width + 18;
+    }
+    ctx.fillStyle = TH.muted;
+    ctx.fillText('above 1×: longer than the zipper queue', lx, ly);
+  }
+
+  function drawBoth(ctx, w, h) {
+    const L = 46, R = 14, Tm = 12, B = 26;
+    const pw = w - L - R, ph = h - Tm - B;
+    const win = 120;
+    const tNow = world.t;
+    const t0 = Math.max(0, tNow - win), t1 = Math.max(win, tNow);
+    const cars = chartMode === 'cars';
+    const kE = cars ? 'qe' : 'me', kZ = cars ? 'qz' : 'mz', kM = cars ? 'qm' : 'mm';
+    let maxV = cars ? 10 : 70;
+    for (const s of world.samples) if (s.t >= t0) { if (s[kE] > maxV) maxV = s[kE]; if (s[kZ] > maxV) maxV = s[kZ]; if (s[kM] > maxV) maxV = s[kM]; }
+    const yStep = niceCeil(maxV * 1.05 / 5), yMax = yStep * 5;
+    const X = t => L + (t - t0) / (t1 - t0) * pw;
+    const Y = v => Tm + ph - v / yMax * ph;
+
+    ctx.font = '11px "Avenir Next", "Segoe UI", system-ui, sans-serif';
+    ctx.strokeStyle = TH.grid;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = TH.muted;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 5; i++) {
+      const v = yStep * i, y = Math.round(Y(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(w - R, y); ctx.stroke();
+      ctx.fillText(cars ? String(Math.round(v)) : Math.round(v) + ' m', L - 6, y);
+    }
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillText(cars ? 'cars in queue' : 'queue length', L, Tm - 2);
+    ctx.textAlign = 'right';
+    ctx.fillText(tNow < win ? 'first 2 minutes' : 'last 2 minutes · now ' + fmtTime(tNow), w - R, h - 8);
+    ctx.textAlign = 'left';
+    ctx.fillText(fmtTime(t0), L, h - 8);
+
+    const line = (key, color) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      let started = false;
+      for (const s of world.samples) {
+        if (s.t < t0) continue;
+        const x = X(s.t), y = Y(s[key]);
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    };
+    line(kM, TH.mix);
+    line(kE, TH.early);
+    line(kZ, TH.zip);
+
+    // legend
+    const items = [['A early merge', TH.early], ['B zipper', TH.zip], ['C with late mergers', TH.mix]];
+    let lx = L + 8;
+    const ly = Tm + 10;
+    ctx.textBaseline = 'middle';
+    for (const [name, color] of items) {
+      ctx.fillStyle = color; ctx.fillRect(lx, ly - 2, 14, 4);
+      ctx.fillStyle = TH.text; ctx.textAlign = 'left'; ctx.fillText(name, lx + 19, ly);
+      lx += 19 + ctx.measureText(name).width + 18;
+    }
+  }
+
+  function updateCompare() {
+    const cols = [['e', world.early], ['z', world.zip], ['m', world.mixed]];
+    for (const [k, sim] of cols) {
+      $('c-th-' + k).textContent = String(sim.m.through);
+      $('c-aw-' + k).textContent = sim.m.through ? fmtS(sim.m.sumDelay / sim.m.through) : '—';
+      $('c-q-' + k).textContent = sim.q.count ? sim.q.count + ' cars · ' + Math.round(sim.q.lengthM) + ' m' : 'none';
+    }
+    let note;
+    if (P.fEarly === 0 && P.fZip === 0) {
+      note = 'Friction is off, so the gate runs at the same rate in all three panels. Cars through and average wait move in lockstep by construction; the queue length in meters is the real difference. C’s late mergers don’t change the totals, they redistribute the waiting (see C’s “Late mergers through” tile).';
+    } else {
+      note = 'Friction is on (early merge ' + Math.round(P.fEarly * 100) + '%, zipper ' + Math.round(P.fZip * 100) + '%). The gate slows on affected releases, so cars through and average wait can now drift apart. C is charged early-merge friction for its lane changes and zipper friction when a late merger cuts in.';
+    }
+    $('cmpNote').textContent = note;
+  }
+
+  let lastTs = performance.now();
+  let acc = 0;
+  function frame(ts) {
+    const real = clamp((ts - lastTs) / 1000, 0, 0.1);
+    lastTs = ts;
+    if (!paused) {
+      acc += real * SPEEDS[speedIdx];
+      let n = 0;
+      while (acc >= DT && n < 240) { world.step(DT, P); acc -= DT; n++; }
+      if (n >= 240) acc = 0;
+    }
+    drawPanel(world.early, $('cvEarly'));
+    drawPanel(world.zip, $('cvZip'));
+    drawPanel(world.mixed, $('cvMixed'));
+    drawChart($('cvChart'));
+    updateMetrics(world.early, mEls.early, world.t);
+    updateMetrics(world.zip, mEls.zip, world.t);
+    updateMetrics(world.mixed, mEls.mixed, world.t);
+    updateCompare();
+    $('status').textContent = (paused ? 'Paused · ' : '') + 'simulated time ' + fmtTime(world.t) + ' · seed ' + world.seed;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
